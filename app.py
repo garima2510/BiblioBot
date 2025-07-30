@@ -6,6 +6,14 @@ from langchain.agents import AgentExecutor, create_openai_tools_agent
 from prompt_template import biblio_prompt
 from tools import BookSearchTool
 
+# Set page config - MUST be the first Streamlit command
+st.set_page_config(
+    page_title="BiblioBot - AI Book Assistant",
+    page_icon="📚",
+    layout="wide",  # optional: "centered" or "wide"
+    initial_sidebar_state="expanded"  # optional: "expanded" or "collapsed"
+)
+
 # Load environment variables
 load_dotenv()
 
