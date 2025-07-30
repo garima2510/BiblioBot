@@ -15,7 +15,7 @@ A Python-based chatbot that helps users find book information and answer questio
 
 ```pwsh
 # Navigate to project directory
-cd c:\_Garima\Projects\BiblioBot
+cd c:\Test\Projects\Your_Directory
 
 # Create virtual environment
 python -m venv venv
@@ -59,15 +59,6 @@ streamlit run app.py
 - "What is the Goodreads rating for The Hobbit?"
 - "Tell me about sci-fi books from the 1980s"
 - "What are some books similar to 1984?"
-
-## Next Steps
-
-This is Step 1 & 2 of a larger project. Future enhancements will include:
-- Semantic search capabilities
-- AI agents for complex queries
-- Semantic Kernel integration
-- Caching for better performance
-- Azure deployment
 
 ## Contributing
 

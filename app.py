@@ -1,14 +1,16 @@
 import streamlit as st
-import requests
 import os
-from openai import AzureOpenAI
 from dotenv import load_dotenv
+from langchain_openai import AzureChatOpenAI
+from langchain.agents import AgentExecutor, create_openai_tools_agent
+from prompt_template import biblio_prompt
+from tools import BookSearchTool
 
 # Load environment variables
 load_dotenv()
 
-st.title("📚 BiblioBot - Your Book Information Assistant")
-st.markdown("*Find book information and ask questions about books using AI*")
+st.title("📚 BiblioBot - Your AI Book Assistant")
+st.markdown("*Ask me anything about books! I can search for books, provide recommendations, and answer questions.*")
 
 # Sidebar for configuration status
 with st.sidebar:
@@ -24,102 +26,91 @@ with st.sidebar:
     if not all([google_key, azure_endpoint, azure_key, azure_model]):
         st.warning("Please configure your API keys in the .env file")
 
-# Basic Book Search Section
-st.header("🔍 Search for Books")
-book_query = st.text_input("Enter a book title or author:", placeholder="e.g., The Hobbit, Stephen King")
+# Initialize session state for chat history
+if "messages" not in st.session_state:
+    st.session_state.messages = []
 
-if book_query and os.getenv("GOOGLE_BOOKS_API_KEY"):
-    with st.spinner("Searching for books..."):
-        try:
-            api_key = os.getenv("GOOGLE_BOOKS_API_KEY")
-            url = f"https://www.googleapis.com/books/v1/volumes?q={book_query}&key={api_key}&maxResults=5"
-            resp = requests.get(url)
-            data = resp.json()
-            
-            if "items" in data:
-                st.success(f"Found {len(data['items'])} results:")
-                for i, item in enumerate(data["items"][:3], 1):
-                    info = item["volumeInfo"]
-                    
-                    with st.expander(f"📖 {info.get('title', 'No Title')}"):
-                        col1, col2 = st.columns([1, 2])
-                        
-                        with col1:
-                            # Display thumbnail if available
-                            if "imageLinks" in info and "thumbnail" in info["imageLinks"]:
-                                st.image(info["imageLinks"]["thumbnail"], width=120)
-                        
-                        with col2:
-                            st.write("**Authors:**", ", ".join(info.get("authors", ["Unknown"])))
-                            st.write("**Published:**", info.get("publishedDate", "Unknown"))
-                            if "categories" in info:
-                                st.write("**Categories:**", ", ".join(info["categories"]))
-                            if "pageCount" in info:
-                                st.write("**Pages:**", info["pageCount"])
-                        
-                        # Description
-                        description = info.get("description", "No description available")
-                        if len(description) > 300:
-                            description = description[:300] + "..."
-                        st.write("**Description:**", description)
-            else:
-                st.warning("No results found. Try a different search term.")
-        except Exception as e:
-            st.error(f"Error searching books: {str(e)}")
-elif book_query and not os.getenv("GOOGLE_BOOKS_API_KEY"):
-    st.error("Google Books API key not configured. Please add it to your .env file.")
+# Initialize LangChain Agent
+@st.cache_resource
+def initialize_agent():
+    """Initialize the LangChain agent with tools."""
+    try:
+        # Initialize Azure OpenAI
+        llm = AzureChatOpenAI(
+            azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT"),
+            api_key=os.getenv("AZURE_OPENAI_KEY"),
+            api_version=os.getenv("AZURE_OPENAI_VERSION", "2024-02-01"),
+            azure_deployment=os.getenv("AZURE_OPENAI_MODEL"),
+            temperature=0.7
+        )
+        
+        # Initialize tools
+        tools = [BookSearchTool()]
+        
+        # Create agent using imported prompt template
+        agent = create_openai_tools_agent(llm, tools, biblio_prompt)
+        agent_executor = AgentExecutor(agent=agent, tools=tools, verbose=False)
+        
+        return agent_executor
+    
+    except Exception as e:
+        st.error(f"Failed to initialize agent: {str(e)}")
+        return None
 
-# Divider
-st.divider()
+# Chat Interface
+st.header("💬 Chat with BiblioBot")
 
-# Natural Language Query Section
-st.header("💬 Ask BiblioBot Anything")
-st.markdown("Ask questions in natural language about books, authors, genres, or even Goodreads ratings!")
+# Display chat messages
+for message in st.session_state.messages:
+    with st.chat_message(message["role"]):
+        st.markdown(message["content"])
 
-user_question = st.text_input(
-    "Your question:", 
-    placeholder="e.g., Who wrote Dune? What is the Goodreads rating for The Hobbit? Tell me about sci-fi books."
-)
+# Chat input (this appears at the bottom of the page)
+if prompt := st.chat_input("Ask me about books, authors, or get recommendations!"):
+    # Add user message to chat history
+    st.session_state.messages.append({"role": "user", "content": prompt})
+    with st.chat_message("user"):
+        st.markdown(prompt)
+    
+    # Get agent response
+    with st.chat_message("assistant"):
+        with st.spinner("BiblioBot is thinking..."):
+            try:
+                agent_executor = initialize_agent()
+                if agent_executor:
+                    response = agent_executor.invoke({
+                        "input": prompt,
+                        "chat_history": st.session_state.messages[-10:]
+                    })
+                    assistant_response = response["output"]
+                    st.markdown(assistant_response)
+                    st.session_state.messages.append({"role": "assistant", "content": assistant_response})
+                else:
+                    st.error("Failed to initialize BiblioBot. Please check your configuration.")
+            except Exception as e:
+                error_msg = f"Sorry, I encountered an error: {str(e)}"
+                st.error(error_msg)
+                st.session_state.messages.append({"role": "assistant", "content": error_msg})
+    # Clear the input after sending
+    #st.session_state["chat_input"] = ""
 
-if user_question and all([os.getenv("AZURE_OPENAI_ENDPOINT"), os.getenv("AZURE_OPENAI_KEY"), os.getenv("AZURE_OPENAI_MODEL")]):
-    with st.spinner("BiblioBot is thinking..."):
-        try:
-            # Initialize Azure OpenAI client
-            client = AzureOpenAI(
-                azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT"),
-                api_key=os.getenv("AZURE_OPENAI_KEY"),
-                api_version=os.getenv("AZURE_OPENAI_VERSION")
-            )
+# Clear chat button
+if st.sidebar.button("Clear Chat History"):
+    st.session_state.messages = []
+    st.rerun()
 
-            response = client.chat.completions.create(
-                model=os.getenv("AZURE_OPENAI_MODEL"),
-                messages=[
-                    {
-                        "role": "system", 
-                        "content": """You are BiblioBot, a helpful assistant specializing in book information. 
-                        You have extensive knowledge about books, authors, genres, publication dates, and literary analysis.
-                        When asked for Goodreads ratings or reviews, provide information based on your knowledge.
-                        Be conversational, informative, and enthusiastic about books.
-                        If you don't know something specific, be honest about it."""
-                    },
-                    {"role": "user", "content": user_question}
-                ],
-                max_tokens=300,
-                temperature=0.7
-            )
-            
-            # Display response in a nice format
-            st.markdown("### 🤖 BiblioBot's Response:")
-            st.markdown(response.choices[0].message.content)
-            
-        except Exception as e:
-            st.error(f"Error getting AI response: {str(e)}")
-            st.info("Please check your Azure OpenAI configuration in the .env file.")
-            
-elif user_question and not all([os.getenv("AZURE_OPENAI_ENDPOINT"), os.getenv("AZURE_OPENAI_KEY"), os.getenv("AZURE_OPENAI_MODEL")]):
-    st.error("Azure OpenAI not configured. Please add your credentials to the .env file.")
+# Example queries
+with st.sidebar:
+    st.header("Example Queries")
+    st.markdown("""
+    Try asking:
+    - "Find me books by Stephen King"
+    - "What's the Goodreads rating for Dune?"
+    - "Recommend sci-fi books from the 1980s"
+    - "Tell me about The Hobbit"
+    - "Find fantasy books for beginners"
+    """)
 
 # Footer
 st.divider()
-st.markdown("---")
-st.markdown("*BiblioBot v1.0 - Powered by Google Books API and Azure OpenAI*")
+st.markdown("*BiblioBot v2.0 - Powered by LangChain, Azure OpenAI, and Google Books API*")
