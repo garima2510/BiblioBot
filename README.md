@@ -9,6 +9,11 @@ A Python-based chatbot that helps users find book information and answer questio
 - 🎨 **User-Friendly UI**: Clean Streamlit interface
 - 🔐 **Secure**: Environment variables for API key management
 
+## When my kid used it
+![BiblioBot Demo Image][logo]
+
+[logo]: https://github.com/garima2510/BiblioBot/blob/main/demo.png "Bibliobot Demo Image"
+
 ## Setup Instructions
 
 ### 1. Clone and Setup Environment
